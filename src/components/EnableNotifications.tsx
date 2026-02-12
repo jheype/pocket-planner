@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { authedFetch } from "@/lib/authedFetch";
 
 type Status = "idle" | "working" | "enabled" | "error";
@@ -27,6 +27,8 @@ type OneSignalLike = {
 declare global {
   interface Window {
     OneSignalDeferred?: Array<(os: OneSignalLike) => void | Promise<void>>;
+    __osInitPromise?: Promise<OneSignalLike>;
+    __osInstance?: OneSignalLike;
   }
 }
 
@@ -68,35 +70,56 @@ function errMsg(e: unknown) {
   }
 }
 
+function getOneSignal(appId: string): Promise<OneSignalLike> {
+  if (window.__osInstance) return Promise.resolve(window.__osInstance);
+  if (window.__osInitPromise) return window.__osInitPromise;
+
+  window.__osInitPromise = new Promise<OneSignalLike>((resolve, reject) => {
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    window.OneSignalDeferred.push(async (OneSignal) => {
+      try {
+        if (!window.__osInstance) {
+          await OneSignal.init({ appId, allowLocalhostAsSecureOrigin: true });
+          window.__osInstance = OneSignal;
+        }
+        resolve(window.__osInstance!);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+
+  return window.__osInitPromise;
+}
+
 export default function EnableNotifications() {
   const appId = useMemo(() => process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID ?? "", []);
   const missingAppId = !appId;
-
-  const osRef = useRef<OneSignalLike | null>(null);
-  const initOnce = useRef(false);
 
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (missingAppId || initOnce.current) return;
+    if (missingAppId) return;
 
-    initOnce.current = true;
+    let alive = true;
 
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    window.OneSignalDeferred.push(async (OneSignal) => {
-      osRef.current = OneSignal;
-
+    (async () => {
       try {
-        await OneSignal.init({ appId, allowLocalhostAsSecureOrigin: true });
-
-        const { optedIn, id } = await waitForSubscription(OneSignal);
+        const os = await getOneSignal(appId);
+        const { optedIn, id } = await waitForSubscription(os);
+        if (!alive) return;
         if (optedIn && id) setStatus("enabled");
       } catch (e) {
+        if (!alive) return;
         setStatus("error");
         setError(`OneSignal init failed: ${errMsg(e)}`);
       }
-    });
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, [appId, missingAppId]);
 
   async function enable() {
@@ -116,17 +139,12 @@ export default function EnableNotifications() {
 
     setStatus("working");
 
-    const OneSignal = osRef.current;
-    if (!OneSignal) {
-      setStatus("error");
-      setError("OneSignal is not ready yet. Refresh the app and try again.");
-      return;
-    }
-
     try {
-      await OneSignal.Slidedown.promptPush();
+      const os = await getOneSignal(appId);
 
-      const { optedIn, id } = await waitForSubscription(OneSignal);
+      await os.Slidedown.promptPush();
+
+      const { optedIn, id } = await waitForSubscription(os);
 
       if (!optedIn) {
         setStatus("error");
