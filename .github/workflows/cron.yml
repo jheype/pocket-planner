@@ -1,0 +1,15 @@
+name: Due reminders cron
+
+on:
+  schedule:
+    - cron: "* * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call cron endpoint
+        run: |
+          curl -sS -X POST "${{ secrets.CRON_URL }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
