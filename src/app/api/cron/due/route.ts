@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendPushToPlayers } from "@/lib/onesignal";
 
-export async function POST(req: Request) {
+async function handle(req: Request) {
   const secret = process.env.CRON_SECRET ?? "";
   const authHeader = req.headers.get("x-cron-secret") ?? "";
   const url = new URL(req.url);
@@ -64,4 +64,12 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ due: due.length, sent });
+}
+
+export async function GET(req: Request) {
+  return handle(req);
+}
+
+export async function POST(req: Request) {
+  return handle(req);
 }

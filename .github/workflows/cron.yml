@@ -2,14 +2,20 @@ name: Due reminders
 
 on:
   schedule:
-    - cron: "*/1 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - name: Call due cron
-        run: |
-          curl -sS -X POST "https://jheypepocket.com/api/cron/due" \
-            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
+    - name: Call due cron
+      run: |
+        set -e
+        echo "Calling /api/cron/due"
+        curl -f -sS -X POST "https://jheypepocket.com/api/cron/due" \
+          -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+          -H "content-type: application/json" \
+          -d '{}'
+        echo "OK"
+
