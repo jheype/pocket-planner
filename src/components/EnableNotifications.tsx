@@ -34,6 +34,12 @@ function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
 }
 
+function isStandalone() {
+  const mm = window.matchMedia?.("(display-mode: standalone)")?.matches ?? false;
+  const navStandalone = (navigator as unknown as { standalone?: boolean }).standalone ?? false;
+  return mm || navStandalone;
+}
+
 function getSubId(os: OneSignalLike): string | null {
   const id = os.User?.PushSubscription?.id;
   return typeof id === "string" && id.trim() ? id : null;
@@ -55,6 +61,7 @@ async function waitForSubscription(os: OneSignalLike) {
 
 export default function EnableNotifications() {
   const [status, setStatus] = useState<Status>("idle");
+  const [error, setError] = useState<string>("");
 
   useEffect(() => {
     let alive = true;
@@ -70,7 +77,9 @@ export default function EnableNotifications() {
         const { optedIn, id } = await waitForSubscription(OneSignal);
         if (alive && optedIn && id) setStatus("enabled");
       } catch {
-        if (alive) setStatus("error");
+        if (!alive) return;
+        setStatus("error");
+        setError("OneSignal failed to initialise.");
       }
     });
 
@@ -80,6 +89,14 @@ export default function EnableNotifications() {
   }, []);
 
   async function enable() {
+    setError("");
+
+    if (!isStandalone()) {
+      setStatus("error");
+      setError("Open from the Home Screen app icon, not from the browser tab.");
+      return;
+    }
+
     setStatus("working");
 
     window.OneSignalDeferred = window.OneSignalDeferred || [];
@@ -94,8 +111,15 @@ export default function EnableNotifications() {
 
         const { optedIn, id } = await waitForSubscription(OneSignal);
 
-        if (!optedIn || !id) {
+        if (!optedIn) {
           setStatus("error");
+          setError("Notifications are not enabled. Check iOS notification permissions.");
+          return;
+        }
+
+        if (!id) {
+          setStatus("error");
+          setError("Subscription ID was not available. Check the service worker setup in OneSignal.");
           return;
         }
 
@@ -109,12 +133,14 @@ export default function EnableNotifications() {
 
         if (!res.ok) {
           setStatus("error");
+          setError("Device registration failed. Check /api/device response.");
           return;
         }
 
         setStatus("enabled");
       } catch {
         setStatus("error");
+        setError("Could not enable notifications.");
       }
     });
   }
@@ -135,9 +161,7 @@ export default function EnableNotifications() {
       </button>
 
       {status === "error" && (
-        <div className="mt-2 text-xs text-red-300">
-          Couldn&apos;t enable notifications. Ensure it&apos;s opened from Home Screen and try again.
-        </div>
+        <div className="mt-2 text-xs text-red-300">{error || "Could not enable notifications."}</div>
       )}
     </div>
   );
