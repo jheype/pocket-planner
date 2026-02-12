@@ -1,5 +1,0 @@
-{
-  "crons": [
-    { "path": "/api/cron/due?secret=choose-another-long-random-secret", "schedule": "*/1 * * * *" }
-  ]
-}
