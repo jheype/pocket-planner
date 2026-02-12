@@ -1,12 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { DeviceUpsertSchema } from "@/lib/validate";
-import { requireAppToken } from "@/lib/requireAppToken";
 
 export async function POST(req: Request) {
-  const denied = requireAppToken(req);
-  if (denied) return denied;
-
   const body = await req.json();
   const data = DeviceUpsertSchema.parse(body);
 
