@@ -44,7 +44,7 @@ function isOptedIn(os: OneSignalLike): boolean {
 }
 
 async function waitForSubscription(os: OneSignalLike) {
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 24; i++) {
     const optedIn = isOptedIn(os);
     const id = getSubId(os);
     if (optedIn && id) return { optedIn, id };
@@ -136,7 +136,7 @@ export default function EnableNotifications() {
 
       {status === "error" && (
         <div className="mt-2 text-xs text-red-300">
-          Couldn&apos;t enable notifications. Check your app token and open from Home Screen.
+          Couldn&apos;t enable notifications. Ensure it&apos;s opened from Home Screen and try again.
         </div>
       )}
     </div>
