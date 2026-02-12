@@ -1,6 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Lock, ArrowRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const KEY = "pp_app_token";
 
@@ -12,6 +15,7 @@ export function getStoredToken() {
 export default function AppGate({ children }: { children: React.ReactNode }) {
   const initial = useMemo(() => getStoredToken(), []);
   const [token, setToken] = useState(initial);
+  const [isFocused, setIsFocused] = useState(false);
 
   function save() {
     const t = token.trim();
@@ -22,32 +26,70 @@ export default function AppGate({ children }: { children: React.ReactNode }) {
 
   if (!token) {
     return (
-      <main className="mx-auto max-w-md px-4 pb-24 pt-8">
-        <h1 className="text-xl font-semibold">Pocket Planner</h1>
-        <p className="mt-2 text-sm opacity-80">
-          Enter your app token to unlock this device.
-        </p>
+      <main className="flex min-h-screen flex-col items-center justify-center px-6 bg-black text-white">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-sm space-y-8"
+        >
+          <div className="text-center space-y-2">
+            <motion.div 
+              initial={{ y: -20 }}
+              animate={{ y: 0 }}
+              className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10"
+            >
+              <Lock className="h-6 w-6 text-white/80" />
+            </motion.div>
+            <h1 className="text-2xl font-bold tracking-tight">Pocket Planner</h1>
+            <p className="text-sm text-white/60">
+              Type your access token.
+            </p>
+          </div>
 
-        <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4">
-          <label className="text-xs opacity-80">App token</label>
-          <input
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none"
-            placeholder="Paste your token"
-            autoCapitalize="none"
-            autoCorrect="off"
-          />
-          <button
-            onClick={save}
-            className="mt-3 w-full rounded-lg bg-white/10 px-3 py-2 text-sm"
+          <div 
+            className={cn(
+              "group relative rounded-2xl bg-white/5 p-1 transition-all duration-300",
+              isFocused ? "bg-white/10 ring-1 ring-white/20 scale-[1.02]" : "hover:bg-white/10"
+            )}
           >
-            Unlock
-          </button>
-        </div>
+            <input
+              type="text"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              className="w-full bg-transparent px-4 py-4 text-center text-lg font-medium tracking-widest text-white outline-none placeholder:text-white/20 placeholder:tracking-normal placeholder:text-sm"
+              placeholder="Cole seu token aqui"
+              autoCapitalize="none"
+              autoCorrect="off"
+            />
+            
+            <AnimatePresence>
+              {token.length > 0 && (
+                <motion.button
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  onClick={save}
+                  className="absolute right-2 top-2 bottom-2 aspect-square flex items-center justify-center rounded-xl bg-white text-black shadow-lg hover:bg-white/90 active:scale-95 transition-transform"
+                >
+                  <ArrowRight className="h-5 w-5" />
+                </motion.button>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
       </main>
     );
   }
 
-  return <>{children}</>;
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }}
+      className="min-h-screen bg-black text-white"
+    >
+      {children}
+    </motion.div>
+  );
 }
