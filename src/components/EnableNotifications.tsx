@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch } from "@/lib/authedFetch";
 
 type Status = "idle" | "working" | "enabled" | "error";
@@ -72,31 +72,31 @@ export default function EnableNotifications() {
   const appId = useMemo(() => process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID ?? "", []);
   const missingAppId = !appId;
 
+  const osRef = useRef<OneSignalLike | null>(null);
+  const initOnce = useRef(false);
+
   const [status, setStatus] = useState<Status>("idle");
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (missingAppId) return;
+    if (missingAppId || initOnce.current) return;
 
-    let alive = true;
+    initOnce.current = true;
 
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     window.OneSignalDeferred.push(async (OneSignal) => {
+      osRef.current = OneSignal;
+
       try {
         await OneSignal.init({ appId, allowLocalhostAsSecureOrigin: true });
 
         const { optedIn, id } = await waitForSubscription(OneSignal);
-        if (alive && optedIn && id) setStatus("enabled");
+        if (optedIn && id) setStatus("enabled");
       } catch (e) {
-        if (!alive) return;
         setStatus("error");
         setError(`OneSignal init failed: ${errMsg(e)}`);
       }
     });
-
-    return () => {
-      alive = false;
-    };
   }, [appId, missingAppId]);
 
   async function enable() {
@@ -116,47 +116,50 @@ export default function EnableNotifications() {
 
     setStatus("working");
 
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    window.OneSignalDeferred.push(async (OneSignal) => {
-      try {
-        await OneSignal.init({ appId, allowLocalhostAsSecureOrigin: true });
-        await OneSignal.Slidedown.promptPush();
+    const OneSignal = osRef.current;
+    if (!OneSignal) {
+      setStatus("error");
+      setError("OneSignal is not ready yet. Refresh the app and try again.");
+      return;
+    }
 
-        const { optedIn, id } = await waitForSubscription(OneSignal);
+    try {
+      await OneSignal.Slidedown.promptPush();
 
-        if (!optedIn) {
-          setStatus("error");
-          setError("Notifications are not enabled. Check iOS notification permissions for this app.");
-          return;
-        }
+      const { optedIn, id } = await waitForSubscription(OneSignal);
 
-        if (!id) {
-          setStatus("error");
-          setError("Subscription ID was not available. Verify OneSignal service workers are reachable at /OneSignalSDKWorker.js.");
-          return;
-        }
-
-        const res = await authedFetch("/api/device", {
-          method: "POST",
-          body: JSON.stringify({
-            playerId: id,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          }),
-        });
-
-        if (!res.ok) {
-          const t = await res.text().catch(() => "");
-          setStatus("error");
-          setError(`Device registration failed: ${res.status} ${t}`);
-          return;
-        }
-
-        setStatus("enabled");
-      } catch (e) {
+      if (!optedIn) {
         setStatus("error");
-        setError(`Could not enable notifications: ${errMsg(e)}`);
+        setError("Notifications are not enabled. Check iOS notification permissions for this app.");
+        return;
       }
-    });
+
+      if (!id) {
+        setStatus("error");
+        setError("Subscription ID was not available. Verify /OneSignalSDKWorker.js is reachable.");
+        return;
+      }
+
+      const res = await authedFetch("/api/device", {
+        method: "POST",
+        body: JSON.stringify({
+          playerId: id,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
+      });
+
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        setStatus("error");
+        setError(`Device registration failed: ${res.status} ${t}`);
+        return;
+      }
+
+      setStatus("enabled");
+    } catch (e) {
+      setStatus("error");
+      setError(`Could not enable notifications: ${errMsg(e)}`);
+    }
   }
 
   const uiError =
