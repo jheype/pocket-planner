@@ -1,100 +1,144 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { authedFetch } from "@/lib/authedFetch";
-import { BellRing, Loader2, AlertCircle } from "lucide-react";
 
-type OneSignalApi = {
-  push: (fn: () => void) => void;
-  init: (opts: { appId: string; allowLocalhostAsSecureOrigin?: boolean }) => void;
-  Slidedown: { promptPush: () => Promise<void> };
-  getUserId: () => Promise<string | null>;
+type Status = "idle" | "working" | "enabled" | "error";
+
+type OneSignalPushSubscription = {
+  id?: string;
+  optedIn?: boolean;
+};
+
+type OneSignalUser = {
+  PushSubscription?: OneSignalPushSubscription;
+};
+
+type OneSignalSlidedown = {
+  promptPush: () => Promise<void>;
+};
+
+type OneSignalLike = {
+  init: (opts: { appId: string; allowLocalhostAsSecureOrigin?: boolean }) => Promise<void> | void;
+  Slidedown: OneSignalSlidedown;
+  User?: OneSignalUser;
 };
 
 declare global {
   interface Window {
-    OneSignal?: OneSignalApi | unknown[];
+    OneSignalDeferred?: Array<(os: OneSignalLike) => void | Promise<void>>;
   }
 }
 
-function getOneSignal(): OneSignalApi | null {
-  const raw = window.OneSignal;
-  if (!raw) return null;
-  if (Array.isArray(raw)) return raw as unknown as OneSignalApi; 
-  return raw as OneSignalApi;
+function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+function getSubId(os: OneSignalLike): string | null {
+  const id = os.User?.PushSubscription?.id;
+  return typeof id === "string" && id.trim() ? id : null;
+}
+
+function isOptedIn(os: OneSignalLike): boolean {
+  return Boolean(os.User?.PushSubscription?.optedIn);
+}
+
+async function waitForSubscription(os: OneSignalLike) {
+  for (let i = 0; i < 20; i++) {
+    const optedIn = isOptedIn(os);
+    const id = getSubId(os);
+    if (optedIn && id) return { optedIn, id };
+    await sleep(250);
+  }
+  return { optedIn: isOptedIn(os), id: getSubId(os) };
 }
 
 export default function EnableNotifications() {
-  const [status, setStatus] = useState<"idle" | "working" | "enabled" | "error">("idle");
+  const [status, setStatus] = useState<Status>("idle");
 
-  async function enable() {
-    try {
-      setStatus("working");
-      const OneSignal = getOneSignal();
-      
-      if (!OneSignal) throw new Error("OneSignal not loaded");
+  useEffect(() => {
+    let alive = true;
 
-      OneSignal.push(() => {
-        OneSignal.init({
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    window.OneSignalDeferred.push(async (OneSignal) => {
+      try {
+        await OneSignal.init({
           appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID!,
           allowLocalhostAsSecureOrigin: true,
         });
-      });
 
-      OneSignal.push(async () => {
+        const { optedIn, id } = await waitForSubscription(OneSignal);
+        if (alive && optedIn && id) setStatus("enabled");
+      } catch {
+        if (alive) setStatus("error");
+      }
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function enable() {
+    setStatus("working");
+
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    window.OneSignalDeferred.push(async (OneSignal) => {
+      try {
+        await OneSignal.init({
+          appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID!,
+          allowLocalhostAsSecureOrigin: true,
+        });
+
         await OneSignal.Slidedown.promptPush();
-        const playerId = await OneSignal.getUserId();
 
-        if (!playerId) {
+        const { optedIn, id } = await waitForSubscription(OneSignal);
+
+        if (!optedIn || !id) {
           setStatus("error");
           return;
         }
 
-        await authedFetch("/api/device", {
+        const res = await authedFetch("/api/device", {
           method: "POST",
           body: JSON.stringify({
-            playerId,
+            playerId: id,
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           }),
         });
+
+        if (!res.ok) {
+          setStatus("error");
+          return;
+        }
+
         setStatus("enabled");
-      });
-    } catch {
-      setStatus("error");
-    }
+      } catch {
+        setStatus("error");
+      }
+    });
   }
 
-  if (status === "enabled") return null;
-
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4">
-      <div className="flex gap-4">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-500/20 text-blue-400">
-          <BellRing className="h-5 w-5" />
-        </div>
-        <div className="flex-1">
-          <h3 className="text-sm font-semibold text-blue-100">Enable Notifications</h3>
-          <p className="mt-1 text-xs leading-relaxed text-blue-200/60">
-            Get alerted when your reminders are due. Requires adding app to Home Screen.
-          </p>
-          
-          <button
-            onClick={enable}
-            disabled={status === "working"}
-            className="mt-3 flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2 text-xs font-bold text-white shadow-lg transition-transform active:scale-95 disabled:opacity-50"
-          >
-            {status === "working" && <Loader2 className="h-3 w-3 animate-spin" />}
-            {status === "error" ? "Try Again" : "Turn On"}
-          </button>
-
-          {status === "error" && (
-            <div className="mt-2 flex items-center gap-1 text-xs text-red-300">
-              <AlertCircle className="h-3 w-3" />
-              <span>Failed. Check if installed on Home Screen.</span>
-            </div>
-          )}
-        </div>
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div className="text-sm font-semibold">Notifications</div>
+      <div className="mt-1 text-xs text-white/60">
+        Install the app to your Home Screen, then enable notifications.
       </div>
+
+      <button
+        onClick={enable}
+        disabled={status === "working" || status === "enabled"}
+        className="mt-3 w-full rounded-xl bg-white/10 px-3 py-2 text-sm disabled:opacity-50"
+      >
+        {status === "enabled" ? "Enabled" : status === "working" ? "Enabling…" : "Turn on"}
+      </button>
+
+      {status === "error" && (
+        <div className="mt-2 text-xs text-red-300">
+          Couldn&apos;t enable notifications. Check your app token and open from Home Screen.
+        </div>
+      )}
     </div>
   );
 }

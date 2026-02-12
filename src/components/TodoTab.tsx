@@ -26,26 +26,29 @@ export default function TodoTab() {
 
   async function load() {
     const res = await authedFetch("/api/tasks");
-    const json = await res.json();
+    if (!res.ok) {
+      setLoading(false);
+      return;
+    }
+    const json: { tasks?: Task[] } = await res.json();
     setTasks(json.tasks ?? []);
     setLoading(false);
   }
 
-useEffect(() => {
-  const t = setTimeout(() => {
-    void load();
-  }, 0);
-
-  return () => clearTimeout(t);
-}, []);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void load();
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   async function add(e?: React.FormEvent) {
     e?.preventDefault();
     const t = title.trim();
     if (!t) return;
 
-    const tempId = Math.random().toString();
-    const newTask = { id: tempId, title: t, done: false, createdAt: new Date().toISOString() };
+    const tempId = crypto.randomUUID();
+    const newTask: Task = { id: tempId, title: t, done: false, createdAt: new Date().toISOString() };
     setTasks((prev) => [newTask, ...prev]);
     setTitle("");
 
@@ -54,24 +57,36 @@ useEffect(() => {
       body: JSON.stringify({ title: t }),
     });
 
-    if (res.ok) await load();
-    else setTasks((prev) => prev.filter(x => x.id !== tempId));
+    if (!res.ok) {
+      setTasks((prev) => prev.filter((x) => x.id !== tempId));
+      return;
+    }
+
+    await load();
   }
 
   async function toggle(id: string, currentDone: boolean) {
-    setTasks(tasks.map(t => t.id === id ? { ...t, done: !currentDone } : t));
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !currentDone } : t)));
 
-    await authedFetch("/api/tasks", {
+    const res = await authedFetch("/api/tasks", {
       method: "PATCH",
       body: JSON.stringify({ id, done: !currentDone }),
     });
+
+    if (!res.ok) {
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: currentDone } : t)));
+    }
   }
 
   async function remove(id: string) {
-    setTasks(tasks.filter(t => t.id !== id));
-    await authedFetch(`/api/tasks?id=${encodeURIComponent(id)}`, {
+    const snapshot = tasks;
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+
+    const res = await authedFetch(`/api/tasks?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
+
+    if (!res.ok) setTasks(snapshot);
   }
 
   return (
@@ -79,19 +94,17 @@ useEffect(() => {
       <header className="mb-6 flex items-end justify-between px-2">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Tasks</h2>
-          <p className="text-sm text-white/50">
-            {loading ? "Syncing..." : `${remaining} tasks remaining`}
-          </p>
+          <p className="text-sm text-white/50">{loading ? "Syncing…" : `${remaining} tasks remaining`}</p>
         </div>
       </header>
 
       <form onSubmit={add} className="relative mb-8">
-        <div className="relative flex items-center overflow-hidden rounded-2xl bg-white/10 p-1 focus-within:bg-white/15 ring-1 ring-white/10 focus-within:ring-white/30 transition-all">
+        <div className="relative flex items-center overflow-hidden rounded-2xl bg-white/10 p-1 ring-1 ring-white/10 transition-all focus-within:bg-white/15 focus-within:ring-white/30">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="flex-1 bg-transparent px-4 py-3 text-base text-white placeholder:text-white/40 outline-none"
-            placeholder="Add a new task..."
+            placeholder="Add a new task…"
             autoCapitalize="sentences"
           />
           <button
@@ -110,21 +123,14 @@ useEffect(() => {
             <Loader2 className="h-6 w-6 animate-spin text-white/40" />
           </div>
         )}
-        
+
         {!loading && tasks.length === 0 && (
-             <div className="py-10 text-center text-sm text-white/40">
-               No tasks yet. Take a break!
-             </div>
+          <div className="py-10 text-center text-sm text-white/40">No tasks yet.</div>
         )}
 
         <AnimatePresence mode="popLayout" initial={false}>
           {sortedTasks.map((t) => (
-            <TaskItem 
-              key={t.id} 
-              task={t} 
-              onToggle={() => toggle(t.id, t.done)} 
-              onRemove={() => remove(t.id)} 
-            />
+            <TaskItem key={t.id} task={t} onToggle={() => toggle(t.id, t.done)} onRemove={() => void remove(t.id)} />
           ))}
         </AnimatePresence>
       </ul>
@@ -132,11 +138,17 @@ useEffect(() => {
   );
 }
 
-function TaskItem({ task, onToggle, onRemove }: { task: Task; onToggle: () => void; onRemove: () => void }) {
-  const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (info.offset.x < -100) {
-      onRemove();
-    }
+function TaskItem({
+  task,
+  onToggle,
+  onRemove,
+}: {
+  task: Task;
+  onToggle: () => void;
+  onRemove: () => void;
+}) {
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (info.offset.x < -100) onRemove();
   };
 
   return (
@@ -167,9 +179,7 @@ function TaskItem({ task, onToggle, onRemove }: { task: Task; onToggle: () => vo
           onClick={onToggle}
           className={cn(
             "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-all",
-            task.done
-              ? "border-green-500 bg-green-500 text-black"
-              : "border-white/30 bg-transparent hover:border-white"
+            task.done ? "border-green-500 bg-green-500 text-black" : "border-white/30 bg-transparent hover:border-white"
           )}
         >
           {task.done && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
@@ -183,7 +193,7 @@ function TaskItem({ task, onToggle, onRemove }: { task: Task; onToggle: () => vo
         >
           {task.title}
         </span>
-        
+
         <div className="h-8 w-1 rounded-full bg-white/5" />
       </motion.div>
     </motion.li>
