@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { authedFetch } from "@/lib/authedFetch";
 
 type Status = "idle" | "working" | "enabled" | "error";
@@ -59,37 +59,54 @@ async function waitForSubscription(os: OneSignalLike) {
   return { optedIn: isOptedIn(os), id: getSubId(os) };
 }
 
+function errMsg(e: unknown) {
+  if (e instanceof Error) return e.message || "Unknown error";
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
 export default function EnableNotifications() {
+  const appId = useMemo(() => process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID ?? "", []);
+  const missingAppId = !appId;
+
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string>("");
 
   useEffect(() => {
+    if (missingAppId) return;
+
     let alive = true;
 
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     window.OneSignalDeferred.push(async (OneSignal) => {
       try {
-        await OneSignal.init({
-          appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID!,
-          allowLocalhostAsSecureOrigin: true,
-        });
+        await OneSignal.init({ appId, allowLocalhostAsSecureOrigin: true });
 
         const { optedIn, id } = await waitForSubscription(OneSignal);
         if (alive && optedIn && id) setStatus("enabled");
-      } catch {
+      } catch (e) {
         if (!alive) return;
         setStatus("error");
-        setError("OneSignal failed to initialise.");
+        setError(`OneSignal init failed: ${errMsg(e)}`);
       }
     });
 
     return () => {
       alive = false;
     };
-  }, []);
+  }, [appId, missingAppId]);
 
   async function enable() {
     setError("");
+
+    if (missingAppId) {
+      setStatus("error");
+      setError("Missing OneSignal App ID. Check NEXT_PUBLIC_ONESIGNAL_APP_ID on Vercel and redeploy.");
+      return;
+    }
 
     if (!isStandalone()) {
       setStatus("error");
@@ -102,24 +119,20 @@ export default function EnableNotifications() {
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     window.OneSignalDeferred.push(async (OneSignal) => {
       try {
-        await OneSignal.init({
-          appId: process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID!,
-          allowLocalhostAsSecureOrigin: true,
-        });
-
+        await OneSignal.init({ appId, allowLocalhostAsSecureOrigin: true });
         await OneSignal.Slidedown.promptPush();
 
         const { optedIn, id } = await waitForSubscription(OneSignal);
 
         if (!optedIn) {
           setStatus("error");
-          setError("Notifications are not enabled. Check iOS notification permissions.");
+          setError("Notifications are not enabled. Check iOS notification permissions for this app.");
           return;
         }
 
         if (!id) {
           setStatus("error");
-          setError("Subscription ID was not available. Check the service worker setup in OneSignal.");
+          setError("Subscription ID was not available. Verify OneSignal service workers are reachable at /OneSignalSDKWorker.js.");
           return;
         }
 
@@ -132,18 +145,25 @@ export default function EnableNotifications() {
         });
 
         if (!res.ok) {
+          const t = await res.text().catch(() => "");
           setStatus("error");
-          setError("Device registration failed. Check /api/device response.");
+          setError(`Device registration failed: ${res.status} ${t}`);
           return;
         }
 
         setStatus("enabled");
-      } catch {
+      } catch (e) {
         setStatus("error");
-        setError("Could not enable notifications.");
+        setError(`Could not enable notifications: ${errMsg(e)}`);
       }
     });
   }
+
+  const uiError =
+    error ||
+    (missingAppId
+      ? "Missing OneSignal App ID. Check NEXT_PUBLIC_ONESIGNAL_APP_ID on Vercel and redeploy."
+      : "");
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -161,7 +181,7 @@ export default function EnableNotifications() {
       </button>
 
       {status === "error" && (
-        <div className="mt-2 text-xs text-red-300">{error || "Could not enable notifications."}</div>
+        <div className="mt-2 text-xs text-red-300">{uiError || "Could not enable notifications."}</div>
       )}
     </div>
   );
