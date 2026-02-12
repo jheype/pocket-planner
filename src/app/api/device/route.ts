@@ -6,6 +6,10 @@ export async function POST(req: Request) {
   const body = await req.json();
   const data = DeviceUpsertSchema.parse(body);
 
+  if (!data.playerId) {
+    return NextResponse.json({ error: "Missing playerId" }, { status: 400 });
+  }
+
   const device = await prisma.device.upsert({
     where: { playerId: data.playerId },
     update: { timezone: data.timezone },
