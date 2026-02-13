@@ -248,9 +248,9 @@ export default function TodoTab() {
     if (!t) return;
 
     const tempId = crypto.randomUUID();
-    const newTask: Task = { id: tempId, title: t, done: false, createdAt: new Date().toISOString() };
+    const tempTask: Task = { id: tempId, title: t, done: false, createdAt: new Date().toISOString() };
 
-    setTasks((prev) => [newTask, ...prev]);
+    setTasks((prev) => [tempTask, ...prev]);
     setDraftByCategory((prev) => ({ ...prev, [categoryId]: "" }));
     setTaskCategory((prev) => ({ ...prev, [tempId]: categoryId }));
 
@@ -269,7 +269,26 @@ export default function TodoTab() {
       return;
     }
 
-    await load();
+    const json: { task?: Task } = await res.json().catch(() => ({}));
+    const created = json.task;
+
+    if (!created?.id) {
+      await load();
+      return;
+    }
+
+    if (created.id !== tempId) {
+      setTasks((prev) => prev.map((x) => (x.id === tempId ? created : x)));
+      setTaskCategory((prev) => {
+        const next = { ...prev };
+        const cat = next[tempId];
+        delete next[tempId];
+        if (cat) next[created.id] = cat;
+        return next;
+      });
+    } else {
+      setTasks((prev) => prev.map((x) => (x.id === tempId ? created : x)));
+    }
   }
 
   async function toggleTask(id: string, currentDone: boolean) {
