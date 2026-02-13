@@ -24,6 +24,7 @@ import {
   Users,
   Wrench,
   MoreHorizontal,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -134,7 +135,7 @@ export default function TodoTab() {
   const [newCatIcon, setNewCatIcon] = useState<IconKey>("briefcase");
 
   const [draftByCategory, setDraftByCategory] = useState<Record<string, string>>({});
-  const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
+  const [moveModalTaskId, setMoveModalTaskId] = useState<string | null>(null);
 
   const remaining = useMemo(() => tasks.filter((t) => !t.done).length, [tasks]);
 
@@ -162,6 +163,11 @@ export default function TodoTab() {
     }
     return byId;
   }, [sortedTasks, taskCategory]);
+
+  const moveTaskTarget = useMemo(() => {
+    if (!moveModalTaskId) return null;
+    return tasks.find((t) => t.id === moveModalTaskId) ?? null;
+  }, [moveModalTaskId, tasks]);
 
   async function load() {
     const res = await authedFetch("/api/tasks");
@@ -277,8 +283,8 @@ export default function TodoTab() {
       return;
     }
 
+    setTasks((prev) => prev.map((x) => (x.id === tempId ? created : x)));
     if (created.id !== tempId) {
-      setTasks((prev) => prev.map((x) => (x.id === tempId ? created : x)));
       setTaskCategory((prev) => {
         const next = { ...prev };
         const cat = next[tempId];
@@ -286,8 +292,6 @@ export default function TodoTab() {
         if (cat) next[created.id] = cat;
         return next;
       });
-    } else {
-      setTasks((prev) => prev.map((x) => (x.id === tempId ? created : x)));
     }
   }
 
@@ -323,7 +327,7 @@ export default function TodoTab() {
 
   function moveTask(taskId: string, categoryId: string) {
     setTaskCategory((prev) => ({ ...prev, [taskId]: categoryId }));
-    setMenuTaskId(null);
+    setMoveModalTaskId(null);
     setCategoryOpen((prev) => ({ ...prev, [categoryId]: true }));
   }
 
@@ -532,13 +536,9 @@ export default function TodoTab() {
                             <TaskItem
                               key={t.id}
                               task={t}
-                              categories={categoriesWithSystem}
-                              menuOpen={menuTaskId === t.id}
-                              onToggleMenu={() => setMenuTaskId((p) => (p === t.id ? null : t.id))}
-                              onCloseMenu={() => setMenuTaskId(null)}
                               onToggle={() => void toggleTask(t.id, t.done)}
                               onRemove={() => void removeTask(t.id)}
-                              onMove={(categoryId) => moveTask(t.id, categoryId)}
+                              onOpenMove={() => setMoveModalTaskId(t.id)}
                               highlightColour={cat.id === "uncategorised" ? undefined : cat.colour}
                             />
                           ))}
@@ -552,29 +552,32 @@ export default function TodoTab() {
           );
         })}
       </div>
+
+      <MoveTaskModal
+        open={!!moveModalTaskId}
+        taskTitle={moveTaskTarget?.title ?? ""}
+        categories={categoriesWithSystem}
+        onClose={() => setMoveModalTaskId(null)}
+        onMove={(categoryId) => {
+          if (!moveModalTaskId) return;
+          moveTask(moveModalTaskId, categoryId);
+        }}
+      />
     </section>
   );
 }
 
 function TaskItem({
   task,
-  categories,
-  menuOpen,
-  onToggleMenu,
-  onCloseMenu,
   onToggle,
   onRemove,
-  onMove,
+  onOpenMove,
   highlightColour,
 }: {
   task: Task;
-  categories: Category[];
-  menuOpen: boolean;
-  onToggleMenu: () => void;
-  onCloseMenu: () => void;
   onToggle: () => void;
   onRemove: () => void;
-  onMove: (categoryId: string) => void;
+  onOpenMove: () => void;
   highlightColour?: string;
 }) {
   const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
@@ -582,7 +585,14 @@ function TaskItem({
   };
 
   return (
-    <motion.li layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -100 }} whileTap={{ scale: 0.98 }} className="relative touch-pan-y">
+    <motion.li
+      layout
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, x: -100 }}
+      whileTap={{ scale: 0.98 }}
+      className="relative touch-pan-y"
+    >
       <div className="absolute inset-0 flex items-center justify-end rounded-2xl bg-red-500/20 px-4">
         <Trash2 className="h-5 w-5 text-red-400" />
       </div>
@@ -592,9 +602,12 @@ function TaskItem({
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={{ left: 0.5, right: 0.05 }}
         onDragEnd={handleDragEnd}
-        className={cn("relative overflow-hidden rounded-2xl border border-white/5 bg-[#121212] shadow-sm", task.done ? "opacity-60" : "opacity-100")}
+        className={cn(
+          "relative overflow-hidden rounded-2xl border border-white/5 bg-[#121212] shadow-sm",
+          task.done ? "opacity-60" : "opacity-100"
+        )}
       >
-        <div className="absolute left-0 top-0 h-full w-1.5" style={{ backgroundColor: highlightColour ? `${highlightColour}` : "rgba(255,255,255,0.06)" }} />
+        <div className="absolute left-0 top-0 h-full w-1.5" style={{ backgroundColor: highlightColour ?? "rgba(255,255,255,0.06)" }} />
         <div className="flex items-center gap-4 p-4 pl-5">
           <button
             onClick={onToggle}
@@ -609,60 +622,96 @@ function TaskItem({
 
           <span className={cn("flex-1 select-none truncate text-base", task.done && "text-white/40 line-through decoration-white/20")}>{task.title}</span>
 
-          <div className="relative">
-            <button
-              type="button"
-              onClick={onToggleMenu}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/5 ring-1 ring-white/10 transition hover:bg-white/10 hover:ring-white/25 active:scale-[0.98]"
-              aria-label="Move task"
-            >
-              <MoreHorizontal className="h-4 w-4 text-white/80" />
-            </button>
-
-            <AnimatePresence>
-              {menuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
-                  transition={{ type: "spring", stiffness: 420, damping: 30 }}
-                  className="absolute right-0 top-12 z-20 w-64 overflow-hidden rounded-2xl border border-white/10 bg-[#0f0f0f] shadow-xl"
-                >
-                  <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
-                    <div className="text-xs font-semibold text-white/70">Move to</div>
-                    <button
-                      type="button"
-                      onClick={onCloseMenu}
-                      className="rounded-lg px-2 py-1 text-xs text-white/60 ring-1 ring-white/10 transition hover:text-white/80 hover:ring-white/20"
-                    >
-                      Close
-                    </button>
-                  </div>
-
-                  <div className="max-h-72 overflow-auto py-1">
-                    {categories.map((c) => {
-                      const Icon = ICONS[c.icon];
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => onMove(c.id)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-white/80 transition hover:bg-white/10"
-                        >
-                          <span className="flex h-6 w-6 items-center justify-center rounded-lg ring-1 ring-white/10" style={{ backgroundColor: `${c.colour}22`, color: c.colour }}>
-                            <Icon className="h-3.5 w-3.5" />
-                          </span>
-                          <span className="truncate">{c.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenMove();
+            }}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/5 ring-1 ring-white/10 transition hover:bg-white/10 hover:ring-white/25 active:scale-[0.98]"
+            aria-label="Move task"
+          >
+            <MoreHorizontal className="h-4 w-4 text-white/80" />
+          </button>
         </div>
       </motion.div>
     </motion.li>
+  );
+}
+
+function MoveTaskModal({
+  open,
+  taskTitle,
+  categories,
+  onClose,
+  onMove,
+}: {
+  open: boolean;
+  taskTitle: string;
+  categories: Category[];
+  onClose: () => void;
+  onMove: (categoryId: string) => void;
+}) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          key="move-task-modal"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+          onMouseDown={onClose}
+          role="dialog"
+          aria-modal="true"
+        >
+          <motion.div
+            initial={{ y: 18, opacity: 0, scale: 0.98 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 18, opacity: 0, scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 420, damping: 32 }}
+            className="w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#0f0f0f] shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-white/10 p-4">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-white/80">Move task</div>
+                <div className="truncate text-base font-semibold">{taskTitle}</div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/5 ring-1 ring-white/10 transition hover:bg-white/10 hover:ring-white/25 active:scale-[0.98]"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4 text-white/80" />
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-auto p-2">
+              {categories.map((c) => {
+                const Icon = ICONS[c.icon];
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => onMove(c.id)}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-white/10 active:scale-[0.99]"
+                  >
+                    <span className="flex h-9 w-9 items-center justify-center rounded-2xl ring-1 ring-white/10" style={{ backgroundColor: `${c.colour}22`, color: c.colour }}>
+                      <Icon className="h-4.5 w-4.5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-white/90">{c.name}</span>
+                      <span className="block text-xs text-white/50">Move here</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
