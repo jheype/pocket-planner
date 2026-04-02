@@ -3,6 +3,7 @@
 import Tabs from "@/components/Tabs";
 import TodoTab from "@/components/TodoTab";
 import RemindersTab from "@/components/RemindersTab";
+import FinanceTab from "@/components/FinanceTab";
 
 export default function Home() {
   return (
@@ -16,7 +17,8 @@ export default function Home() {
         <Tabs
           tabs={[
             { key: "todo", label: "To-Do", content: <TodoTab /> },
-            { key: "reminders", label: "Reminders", content: <RemindersTab /> },
+            { key: "reminders", label: "Lembretes", content: <RemindersTab /> },
+            { key: "finance", label: "Finanças", content: <FinanceTab /> },
           ]}
         />
       </div>

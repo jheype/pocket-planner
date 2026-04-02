@@ -42,3 +42,28 @@ model Device {
   timezone  String
   createdAt DateTime @default(now())
 }
+
+model FinanceCategory {
+  id        String   @id @default(cuid())
+  name      String
+  colour    String   @default("#60a5fa")
+  icon      String   @default("shopping")
+  createdAt DateTime @default(now())
+
+  transactions FinanceTransaction[]
+}
+
+model FinanceTransaction {
+  id          String   @id @default(cuid())
+  type        String   // "income" | "expense"
+  amount      Float
+  description String
+  categoryId  String?
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  category FinanceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([date])
+  @@index([type])
+}

@@ -17,7 +17,10 @@ export default function Tabs({ tabs }: { tabs: Tab[] }) {
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-10 bg-black/80 p-1 backdrop-blur-xl">
-        <div className="grid grid-cols-2 rounded-2xl bg-white/5 p-1">
+        <div
+          className="rounded-2xl bg-white/5 p-1"
+          style={{ display: "grid", gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+        >
           {tabs.map((t) => (
             <button
               key={t.key}
